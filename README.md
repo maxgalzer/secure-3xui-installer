@@ -37,7 +37,7 @@ ufw deny 80/tcp
 
 ---
 
-## 🔔 Установка автообновления SSL и Telegram-уведомлений
+## 🔔 Установка Telegram-уведомлений
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/maxgalzer/secure-3xui-installer/main/install_notifier.sh)
