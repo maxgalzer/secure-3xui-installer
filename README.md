@@ -16,7 +16,7 @@
 bash <(curl -Ls https://raw.githubusercontent.com/maxgalzer/secure-3xui-installer/main/secure_setup.sh)
 ```
 ⚠️ После запуска пропиши переменные для secure_setup.sh:
-NEW_SSH_PORT, XUI_PANEL_PORT, XUI_INBOUND_PORT, DOMAIN_NAME
+- NEW_SSH_PORT, XUI_PANEL_PORT, XUI_INBOUND_PORT, DOMAIN_NAME
 
 ---
 
