@@ -37,6 +37,7 @@ RULES_FILE="/etc/ufw/before.rules"
 cp "$RULES_FILE" "${RULES_FILE}.bak"
 
 awk '
+  BEGIN { skip_input = 0; skip_forward = 0 }
   /# ok icmp codes for INPUT/ {
     print;
     print "-A ufw-before-input -p icmp --icmp-type destination-unreachable -j DROP";
@@ -45,7 +46,6 @@ awk '
     print "-A ufw-before-input -p icmp --icmp-type echo-request -j DROP";
     print "-A ufw-before-input -p icmp --icmp-type source-quench -j DROP";
     skip_input = 5;
-
     next
   }
   /# ok icmp code for FORWARD/ {
@@ -55,7 +55,6 @@ awk '
     print "-A ufw-before-forward -p icmp --icmp-type parameter-problem -j DROP";
     print "-A ufw-before-forward -p icmp --icmp-type echo-request -j DROP";
     skip_forward = 4;
-
     next
   }
   skip_input > 0 { skip_input--; next }
@@ -78,16 +77,16 @@ bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.
 ufw allow "$XUI_PANEL_PORT"/tcp
 ufw allow 80/tcp
 
-# ───── Шаг 6: Настройка домена ─────
-echo "[*] Настраиваем домен в панели..."
-x-ui <<EOF
-18
-1
-$DOMAIN_NAME
-
-N
-Y
-EOF
+# ───── Шаг 6: Вручную настроить домен и SSL ─────
+echo ""
+echo "⚠️  ВАЖНО: Вручную настрой домен и SSL в x-ui:"
+echo "  1. Введите команду: x-ui"
+echo "  2. Выберите: 18 (Settings)"
+echo "  3. Затем: 1 (Domain) → введи: $DOMAIN_NAME"
+echo "  4. Вернись в главное меню"
+echo "  5. Выбери: 13 (SSL) → 1 (Get SSL)"
+echo ""
+read -p "Нажми Enter, когда сертификат будет успешно получен..." _
 
 # ───── Шаг 7: Закрытие 80 и cron ─────
 ufw deny 80/tcp
@@ -117,4 +116,3 @@ else
   mv "${SSHD_CONFIG}.bak" "$SSHD_CONFIG"
   systemctl reload ssh
 fi
-
