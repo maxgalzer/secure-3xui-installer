@@ -45,3 +45,17 @@ bash <(curl -Ls https://raw.githubusercontent.com/maxgalzer/secure-3xui-installe
 - Скрипт создаёт `/root/renew_ssl.sh`
 - Добавляет cron-задачу `22 4 * * *`
 - Отправляет тестовое уведомление в Telegram
+
+## 📬 Как получить Telegram Chat ID
+
+1. Напиши любое сообщение своему боту в Telegram.  
+2. Открой в браузере ссылку (замени `<TOKEN>` на токен своего бота):
+
+   [`https://api.telegram.org/bot<TOKEN>/getUpdates`](https://api.telegram.org/bot<TOKEN>/getUpdates)
+
+
+3. Найди в ответе блок:
+
+   ```json
+   "chat":{"id":902225799,"first_name":"NAME","username":"USERNAME","type":"private"}
+4. Цифра после "id" — это и есть твой Telegram Chat ID.
