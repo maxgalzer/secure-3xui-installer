@@ -4,21 +4,24 @@
 # Secure 3x-ui Installer (Ultimate Edition)
 # Автор: Max Galzer | https://github.com/maxgalzer
 # ============================================
+
 set -e
+
+# --- Отключаем интерактивные needrestart и лишний мусор в выводе apt ---
+export NEEDRESTART_MODE=a
 
 if [[ "$EUID" -ne 0 ]]; then
   echo "‼️ Скрипт нужно запускать от root"
   exit 1
 fi
 
-# 1. Сбор всех параметров заранее
+# 1. Сбор параметров
 echo "🔧 Укажи параметры установки:"
 read -rp "➡️  Новый SSH-порт (не 22): " NEW_SSH_PORT
 read -rp "➡️  Порт панели 3x-ui: " XUI_PANEL_PORT
 read -rp "➡️  Порт инбаунда: " XUI_INBOUND_PORT
 read -rp "➡️  Домен (для SSL): " DOMAIN_NAME
 
-# Вопрос про телеграм-нотификации
 read -rp "➡️  Устанавливать уведомления в Telegram о продлении SSL? (y/n): " TG_ENABLE
 if [[ "$TG_ENABLE" =~ ^[Yy]$ ]]; then
     read -rp "    ➡️  Telegram Bot Token: " TELEGRAM_TOKEN
@@ -42,15 +45,15 @@ echo "Telegram-нотификации: $TG_STATUS"
 read -rp "Продолжить? (y/n): " CONFIRM
 [[ "$CONFIRM" =~ ^[Yy]$ ]] || exit 1
 
-# 2. Базовая подготовка (зависимости, безопасность, UFW)
+# 2. Установка зависимостей
 echo "[*] Обновляем пакеты и ставим зависимости..."
 apt update -y
 apt install -y curl socat ufw git lsof
 
+# 3. ICMP-правила UFW
 echo "[*] Настраиваем фильтрацию ICMP в UFW..."
 RULES_FILE="/etc/ufw/before.rules"
 cp "$RULES_FILE" "${RULES_FILE}.bak"
-
 awk '
   BEGIN { skip_input = 0; skip_forward = 0 }
   /# ok icmp codes for INPUT/ {
@@ -77,22 +80,34 @@ awk '
   { print }
 ' "${RULES_FILE}.bak" > "$RULES_FILE"
 
+# 4. Включение UFW и разрешение SSH-порта
 echo "[*] Включаем UFW и разрешаем текущий SSH-порт..."
-CURRENT_PORT=$(ss -tnlp | grep sshd | awk -F':' '/sshd/ && $NF ~ /^[0-9]+$/ {print $NF; exit}')
+
+# Сначала пробуем получить реально используемый порт из процессов
+CURRENT_PORT=$(ss -tnlp | grep -w sshd | awk -F':' '/sshd/ && $NF ~ /^[0-9]+$/ {print $NF; exit}')
+# Если не найден — читаем из конфига (более надежно)
+if [[ -z "$CURRENT_PORT" ]]; then
+  CURRENT_PORT=$(grep -E '^Port ' /etc/ssh/sshd_config | head -n1 | awk '{print $2}')
+fi
+# Если все равно пусто — используем 22 (по дефолту)
+if [[ -z "$CURRENT_PORT" ]]; then
+  CURRENT_PORT=22
+fi
+
 ufw allow "$CURRENT_PORT"/tcp
 ufw disable
 ufw enable
 
-# 3. Установка 3x-ui
+# 5. Установка 3x-ui
 echo "[*] Устанавливаем 3x-ui..."
 bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 
-# 4. Настраиваем UFW для панели, инбаунда и порта 80 (SSL)
+# 6. Открытие портов
 ufw allow "$XUI_PANEL_PORT"/tcp
 ufw allow "$XUI_INBOUND_PORT"/tcp
 ufw allow 80/tcp
 
-# 5. SSL: Ставим acme.sh и генерируем сертификат
+# 7. SSL: acme.sh и сертификат
 echo "[*] Останавливаем x-ui для SSL..."
 systemctl stop x-ui || true
 sleep 2
@@ -118,11 +133,12 @@ systemctl start x-ui
 sleep 2
 ufw deny 80/tcp
 
-# 6. Настраиваем скрипт автообновления + Telegram-нотификации (если включено)
+# 8. Renew SSL + Telegram (опционально)
 if [[ "$TG_ENABLE" =~ ^[Yy]$ ]]; then
 cat <<EOF > /root/renew_ssl.sh
 #!/bin/bash
 
+export NEEDRESTART_MODE=a
 LOGFILE="/var/log/ssl_renew.log"
 TELEGRAM_TOKEN="${TELEGRAM_TOKEN}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID}"
@@ -178,7 +194,7 @@ chmod +x /root/renew_ssl.sh
 (crontab -l 2>/dev/null | grep -v 'renew_ssl.sh'; echo "22 4 * * * /root/renew_ssl.sh") | crontab -
 fi
 
-# 7. В самом конце: меняем SSH-порт, открываем его, перезапускаем sshd
+# 9. В самом конце: меняем SSH-порт
 echo "[*] Меняем SSH-порт на $NEW_SSH_PORT..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
 cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
