@@ -83,13 +83,10 @@ awk '
 # 4. Включение UFW и разрешение SSH-порта
 echo "[*] Включаем UFW и разрешаем текущий SSH-порт..."
 
-# Сначала пробуем получить реально используемый порт из процессов
 CURRENT_PORT=$(ss -tnlp | grep -w sshd | awk -F':' '/sshd/ && $NF ~ /^[0-9]+$/ {print $NF; exit}')
-# Если не найден — читаем из конфига (более надежно)
 if [[ -z "$CURRENT_PORT" ]]; then
   CURRENT_PORT=$(grep -E '^Port ' /etc/ssh/sshd_config | head -n1 | awk '{print $2}')
 fi
-# Если все равно пусто — используем 22 (по дефолту)
 if [[ -z "$CURRENT_PORT" ]]; then
   CURRENT_PORT=22
 fi
@@ -107,7 +104,7 @@ ufw allow "$XUI_PANEL_PORT"/tcp
 ufw allow "$XUI_INBOUND_PORT"/tcp
 ufw allow 80/tcp
 
-# 7. SSL: acme.sh и сертификат
+# 7. SSL: acme.sh + Let's Encrypt
 echo "[*] Останавливаем x-ui для SSL..."
 systemctl stop x-ui || true
 sleep 2
@@ -117,8 +114,8 @@ if [ ! -d "$HOME/.acme.sh" ]; then
   source ~/.bashrc || true
 fi
 
-echo "[*] Генерируем SSL для $DOMAIN_NAME..."
-~/.acme.sh/acme.sh --issue --standalone -d "$DOMAIN_NAME" --force
+echo "[*] Генерируем SSL для $DOMAIN_NAME через Let's Encrypt..."
+~/.acme.sh/acme.sh --issue --standalone -d "$DOMAIN_NAME" --force --server letsencrypt
 
 if [ ! -f "/root/.acme.sh/$DOMAIN_NAME/fullchain.cer" ]; then
     echo "❌ Не удалось получить SSL сертификат. Проверь домен!"
@@ -153,7 +150,7 @@ STATUS=""
   echo "===== [\${NOW}] 🔐 SSL ОБНОВЛЕНИЕ ====="
   echo "[IP] \${SERVER_IP}"
   ufw allow 80/tcp
-  ~/.acme.sh/acme.sh --issue --standalone -d "\$DOMAIN_NAME" --force
+  ~/.acme.sh/acme.sh --issue --standalone -d "\$DOMAIN_NAME" --force --server letsencrypt
   RENEW_EXIT=\$?
   cp "/root/.acme.sh/\$DOMAIN_NAME/fullchain.cer" "/usr/local/x-ui/bin/cert.crt"
   cp "/root/.acme.sh/\$DOMAIN_NAME/\$DOMAIN_NAME.key" "/usr/local/x-ui/bin/private.key"
@@ -221,7 +218,7 @@ clear
 echo -e "\n\033[1;34m==========  УСТАНОВКА ЗАВЕРШЕНА  ==========\033[0m\n"
 echo -e "  \033[1;32m✔ Порт подключения к серверу изменён\033[0m"
 echo -e "  \033[1;32m✔ 3x-ui установлен и запущен\033[0m"
-echo -e "  \033[1;32m✔ SSL-сертификат для домена выдан и подключён\033[0m"
+echo -e "  \033[1;32m✔ SSL-сертификат для домена выдан и подключён (Let's Encrypt)\033[0m"
 if [[ "$TG_ENABLE" =~ ^[Yy]$ ]]; then
   echo -e "  \033[1;32m✔ Настроен крон для автопродления и уведомления в Telegram\033[0m"
 else
