@@ -1,13 +1,12 @@
 #!/bin/bash
 
 # ============================================
-# Secure 3x-ui Installer (Ultimate Edition)
+# Secure 3x-ui Installer (Ultimate Edition, ECC-фиксы)
 # Автор: Max Galzer | https://github.com/maxgalzer
 # ============================================
 
 set -e
 
-# --- Отключаем интерактивные needrestart и лишний мусор в выводе apt ---
 export NEEDRESTART_MODE=a
 
 if [[ "$EUID" -ne 0 ]]; then
@@ -15,7 +14,7 @@ if [[ "$EUID" -ne 0 ]]; then
   exit 1
 fi
 
-# 1. Сбор параметров
+# --- Ввод параметров
 echo "🔧 Укажи параметры установки:"
 read -rp "➡️  Новый SSH-порт (не 22): " NEW_SSH_PORT
 read -rp "➡️  Порт панели 3x-ui: " XUI_PANEL_PORT
@@ -45,12 +44,12 @@ echo "Telegram-нотификации: $TG_STATUS"
 read -rp "Продолжить? (y/n): " CONFIRM
 [[ "$CONFIRM" =~ ^[Yy]$ ]] || exit 1
 
-# 2. Установка зависимостей
+# --- Установка зависимостей
 echo "[*] Обновляем пакеты и ставим зависимости..."
 apt update -y
 apt install -y curl socat ufw git lsof
 
-# 3. ICMP-правила UFW
+# --- ICMP-правила UFW
 echo "[*] Настраиваем фильтрацию ICMP в UFW..."
 RULES_FILE="/etc/ufw/before.rules"
 cp "$RULES_FILE" "${RULES_FILE}.bak"
@@ -80,9 +79,8 @@ awk '
   { print }
 ' "${RULES_FILE}.bak" > "$RULES_FILE"
 
-# 4. Включение UFW и разрешение SSH-порта
+# --- Включение UFW и разрешение SSH-порта
 echo "[*] Включаем UFW и разрешаем текущий SSH-порт..."
-
 CURRENT_PORT=$(ss -tnlp | grep -w sshd | awk -F':' '/sshd/ && $NF ~ /^[0-9]+$/ {print $NF; exit}')
 if [[ -z "$CURRENT_PORT" ]]; then
   CURRENT_PORT=$(grep -E '^Port ' /etc/ssh/sshd_config | head -n1 | awk '{print $2}')
@@ -90,21 +88,20 @@ fi
 if [[ -z "$CURRENT_PORT" ]]; then
   CURRENT_PORT=22
 fi
-
 ufw allow "$CURRENT_PORT"/tcp
 ufw disable
 ufw enable
 
-# 5. Установка 3x-ui
+# --- Установка 3x-ui
 echo "[*] Устанавливаем 3x-ui..."
 bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
 
-# 6. Открытие портов
+# --- Открытие портов для панели, инбаунда и SSL
 ufw allow "$XUI_PANEL_PORT"/tcp
 ufw allow "$XUI_INBOUND_PORT"/tcp
 ufw allow 80/tcp
 
-# 7. SSL: acme.sh + Let's Encrypt
+# --- SSL: acme.sh + Let's Encrypt (ECC-фиксация путей!)
 echo "[*] Останавливаем x-ui для SSL..."
 systemctl stop x-ui || true
 sleep 2
@@ -114,23 +111,25 @@ if [ ! -d "$HOME/.acme.sh" ]; then
   source ~/.bashrc || true
 fi
 
-echo "[*] Генерируем SSL для $DOMAIN_NAME через Let's Encrypt..."
-~/.acme.sh/acme.sh --issue --standalone -d "$DOMAIN_NAME" --force --server letsencrypt
+echo "[*] Генерируем ECC SSL для $DOMAIN_NAME через Let's Encrypt..."
+~/.acme.sh/acme.sh --issue --standalone -d "$DOMAIN_NAME" --force --server letsencrypt --keylength ec-256
 
-if [ ! -f "/root/.acme.sh/$DOMAIN_NAME/fullchain.cer" ]; then
+CERT_DIR="/root/.acme.sh/${DOMAIN_NAME}_ecc"
+
+if [ ! -f "${CERT_DIR}/fullchain.cer" ]; then
     echo "❌ Не удалось получить SSL сертификат. Проверь домен!"
     exit 1
 fi
 
-echo "[*] Копируем сертификаты для x-ui..."
-cp "/root/.acme.sh/$DOMAIN_NAME/fullchain.cer" "/usr/local/x-ui/bin/cert.crt"
-cp "/root/.acme.sh/$DOMAIN_NAME/$DOMAIN_NAME.key" "/usr/local/x-ui/bin/private.key"
+echo "[*] Копируем сертификаты в /usr/local/x-ui/bin/ ..."
+cp "${CERT_DIR}/fullchain.cer" "/usr/local/x-ui/bin/cert.crt"
+cp "${CERT_DIR}/${DOMAIN_NAME}.key" "/usr/local/x-ui/bin/private.key"
 
 systemctl start x-ui
 sleep 2
 ufw deny 80/tcp
 
-# 8. Renew SSL + Telegram (опционально)
+# --- Renew SSL + Telegram (опционально, с ECC-фиксацией)
 if [[ "$TG_ENABLE" =~ ^[Yy]$ ]]; then
 cat <<EOF > /root/renew_ssl.sh
 #!/bin/bash
@@ -140,6 +139,7 @@ LOGFILE="/var/log/ssl_renew.log"
 TELEGRAM_TOKEN="${TELEGRAM_TOKEN}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID}"
 DOMAIN_NAME="${DOMAIN_NAME}"
+CERT_DIR="/root/.acme.sh/\${DOMAIN_NAME}_ecc"
 
 NOW=\$(date '+%Y-%m-%d %H:%M:%S')
 SERVER_IP=\$(curl -s ifconfig.me)
@@ -150,10 +150,10 @@ STATUS=""
   echo "===== [\${NOW}] 🔐 SSL ОБНОВЛЕНИЕ ====="
   echo "[IP] \${SERVER_IP}"
   ufw allow 80/tcp
-  ~/.acme.sh/acme.sh --issue --standalone -d "\$DOMAIN_NAME" --force --server letsencrypt
+  ~/.acme.sh/acme.sh --issue --standalone -d "\$DOMAIN_NAME" --force --server letsencrypt --keylength ec-256
   RENEW_EXIT=\$?
-  cp "/root/.acme.sh/\$DOMAIN_NAME/fullchain.cer" "/usr/local/x-ui/bin/cert.crt"
-  cp "/root/.acme.sh/\$DOMAIN_NAME/\$DOMAIN_NAME.key" "/usr/local/x-ui/bin/private.key"
+  cp "\${CERT_DIR}/fullchain.cer" "/usr/local/x-ui/bin/cert.crt"
+  cp "\${CERT_DIR}/\${DOMAIN_NAME}.key" "/usr/local/x-ui/bin/private.key"
   systemctl restart x-ui
   ufw deny 80/tcp
 
@@ -191,7 +191,7 @@ chmod +x /root/renew_ssl.sh
 (crontab -l 2>/dev/null | grep -v 'renew_ssl.sh'; echo "22 4 * * * /root/renew_ssl.sh") | crontab -
 fi
 
-# 9. В самом конце: меняем SSH-порт
+# --- Меняем SSH-порт в самом конце
 echo "[*] Меняем SSH-порт на $NEW_SSH_PORT..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
 cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
@@ -218,7 +218,7 @@ clear
 echo -e "\n\033[1;34m==========  УСТАНОВКА ЗАВЕРШЕНА  ==========\033[0m\n"
 echo -e "  \033[1;32m✔ Порт подключения к серверу изменён\033[0m"
 echo -e "  \033[1;32m✔ 3x-ui установлен и запущен\033[0m"
-echo -e "  \033[1;32m✔ SSL-сертификат для домена выдан и подключён (Let's Encrypt)\033[0m"
+echo -e "  \033[1;32m✔ SSL-сертификат для домена выдан и подключён (Let's Encrypt ECC)\033[0m"
 if [[ "$TG_ENABLE" =~ ^[Yy]$ ]]; then
   echo -e "  \033[1;32m✔ Настроен крон для автопродления и уведомления в Telegram\033[0m"
 else
