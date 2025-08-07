@@ -22,7 +22,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/maxgalzer/secure-3xui-installe
 > Всё происходит полностью автоматически — не нужно вручную запускать bash или редактировать скрипты!
 ---
 
-## 🚀 Быстрый запуск
+## 🚀 Быстрый запуск защищенного 3x-ui
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/maxgalzer/secure-3xui-installer/main/secure_setup.sh)
